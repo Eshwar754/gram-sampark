@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gram-Sampark – Health Records</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4CAF50">
+</head>
+<body>
+    <header>
+        <h1>Gram-Sampark</h1>
+        <div id="status-indicator" class="status offline">Checking status...</div>
+    </header>
+
+    <main>
+        <section id="patient-form-section">
+            <h2>Register / Update Patient</h2>
+            <form id="patient-form">
+                <input type="hidden" id="docId">
+                <div class="form-group">
+                    <label for="patient_id">Patient ID</label>
+                    <input type="text" id="patient_id" required placeholder="e.g., GS-001">
+                </div>
+                <div class="form-group">
+                    <label for="name">Full Name</label>
+                    <input type="text" id="name" required>
+                </div>
+                <div class="form-group">
+                    <label for="age">Age</label>
+                    <input type="number" id="age" required>
+                </div>
+                <div class="form-group">
+                    <label for="village">Village</label>
+                    <input type="text" id="village" required>
+                </div>
+                <div class="form-group">
+                    <label for="diagnosis">Diagnosis</label>
+                    <input type="text" id="diagnosis" required>
+                </div>
+                <div class="form-group">
+                    <label for="medications">Medications</label>
+                    <textarea id="medications" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="updated_by">Health Worker ID</label>
+                    <input type="text" id="updated_by" required placeholder="HW-101">
+                </div>
+                <button type="submit">Save Record</button>
+                <button type="button" id="clear-btn" class="secondary">Clear</button>
+            </form>
+            <div id="form-msg"></div>
+        </section>
+
+        <section id="patient-list-section">
+            <h2>Patient Records</h2>
+            <div class="search-box">
+                <input type="text" id="search-input" placeholder="Search by name or ID...">
+            </div>
+            <div id="patient-list">
+                <!-- Patient cards go here -->
+            </div>
+        </section>
+    </main>
+
+    <!-- Firebase SDKs -->
+    <script type="module" src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('Service Worker registered', reg))
+                    .catch(err => console.error('Service Worker registration failed', err));
+            });
+        }
+    </script>
+</body>
+</html>
