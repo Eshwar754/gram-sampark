@@ -397,29 +397,41 @@ function setupPatientListener() {
 
     let q;
     if (userRole === 'admin') {
+        // Admins see everything
         q = query(collection(db, "patients"), orderBy("updated_at", "desc"));
     } else {
-        // Normal user only sees their assigned ones
-        q = query(collection(db, "patients"), where("assigned_by_email", "==", currentUser.email), orderBy("updated_at", "desc"));
+        // Check if user has any assigned villages to avoid query errors
+        if (userAssignedVillages && userAssignedVillages.length > 0) {
+            // FIX: Query based on the village name, not the creator's email
+            // The 'in' operator allows matching any village in the user's assigned list
+            q = query(
+                collection(db, "patients"),
+                where("village", "in", userAssignedVillages),
+                orderBy("updated_at", "desc")
+            );
+        } else {
+            // If no villages are assigned, show nothing (or handle as needed)
+            renderPatients([]);
+            return;
+        }
     }
 
     patientUnsubscribe = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
         allPatients = [];
         snapshot.forEach((docSnap) => {
             const data = docSnap.data();
-            // Validate user can read this on the client just to be safe: 
-            if (userRole === 'admin' || userAssignedVillages.includes(data.village)) {
-                const source = docSnap.metadata.hasPendingWrites ? "Local" : "Server";
-                allPatients.push({ id: docSnap.id, source, ...data });
-            }
+            const source = docSnap.metadata.hasPendingWrites ? "Local" : "Server";
+            allPatients.push({ id: docSnap.id, source, ...data });
         });
         renderPatients(allPatients);
+
         if (userRole !== 'admin') {
             updateUserDashboardStats();
         }
     }, (error) => {
         console.error("Patient list error:", error);
-        // Note: Missing indexes might throw here initially
+        // Note: You may need to create a composite index in Firebase Console 
+        // for (village ASC, updated_at DESC)
     });
 }
 
