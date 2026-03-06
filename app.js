@@ -1,6 +1,8 @@
 ﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import {
     getAuth,
+    setPersistence,
+    browserLocalPersistence,
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
     signOut,
@@ -36,6 +38,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+
+// Explicitly set persistence for offline auth survival
+setPersistence(auth, browserLocalPersistence)
+    .catch((error) => console.error("Persistence error:", error));
 
 // Global State
 let currentUser = null;
@@ -902,6 +908,9 @@ function setupFormVillageInput() {
             }
         });
         container.appendChild(select);
+        select.addEventListener('change', (e) => {
+            activeVillage = allVillagesCache.find(v => v.name === e.target.value) || null;
+        });
     } else {
         const select = document.createElement('select');
         select.id = 'village';
@@ -921,6 +930,9 @@ function setupFormVillageInput() {
             }
         });
         container.appendChild(select);
+        select.addEventListener('change', (e) => {
+            activeVillage = userAssignedVillages.find(v => v.name === e.target.value) || null;
+        });
     }
 }
 
@@ -996,7 +1008,12 @@ function renderPatients(patients) {
             if (confirm(`Are you sure you want to permanently delete ${p.name}'s record?`)) {
                 deleteDoc(doc(db, "patients", p.id))
                     .then(() => showMsg('Record deleted.', 'success'))
-                    .catch(e => showMsg(e.message, 'error'));
+                    .catch(err => {
+                        console.error("Delete failed:", err);
+                        showMsg(`Delete Failed: ${err.message}`, 'error');
+                        // Force a re-render if it was optimistically removed
+                        applyPatientFilters();
+                    });
             }
         };
         btnContainer.appendChild(delBtn);
@@ -1019,10 +1036,36 @@ function escapeHTML(str) {
     );
 }
 
+function deepSanitize(obj) {
+    if (Array.isArray(obj)) {
+        return obj.map(v => (v && typeof v === 'object') ? deepSanitize(v) : (v === undefined ? "" : v));
+    }
+    const clean = {};
+    Object.keys(obj).forEach(key => {
+        const val = obj[key];
+        if (val && typeof val === 'object' && !(val instanceof Date)) {
+            clean[key] = deepSanitize(val);
+        } else {
+            clean[key] = val === undefined ? "" : val;
+        }
+    });
+    return clean;
+}
+
 // Handle Form Submission
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!validateStep(currentStep)) return;
+
+    // Last-second fallback for village synchronization
+    const villageVal = document.getElementById('village').value.trim();
+    if (villageVal && !activeVillage) {
+        if (userRole === 'admin') {
+            activeVillage = allVillagesCache.find(v => v.name === villageVal) || null;
+        } else {
+            activeVillage = userAssignedVillages.find(v => v.name === villageVal) || null;
+        }
+    }
 
     const docId = document.getElementById('docId').value;
     const patientData = {
@@ -1040,7 +1083,8 @@ form.addEventListener('submit', async (e) => {
         vaccination_status: document.getElementById('vaccination_status').value.trim(),
         nearest_healthcare: document.getElementById('nearest_healthcare').value.trim(),
 
-        village: activeVillage || document.getElementById('village').value.trim(),
+        village: activeVillage ? activeVillage.name : document.getElementById('village').value.trim(),
+        village_id: activeVillage ? String(activeVillage.id) : (allVillagesCache.find(v => v.name === document.getElementById('village').value.trim())?.id || ''),
         gram_panchayat: document.getElementById('gram_panchayat').value.trim(),
         taluk: document.getElementById('taluk').value.trim(),
         district: document.getElementById('district').value.trim(),
@@ -1072,11 +1116,13 @@ form.addEventListener('submit', async (e) => {
         school_dropouts: document.getElementById('dropouts').value,
 
         assigned_by_email: currentUser.email, // Assign to current user
-        village_id: activeVillage ? activeVillage.id : (allVillagesCache.find(v => v.name === document.getElementById('village').value.trim())?.id || ''),
+        village_id: activeVillage ? String(activeVillage.id) : (allVillagesCache.find(v => v.name === document.getElementById('village').value.trim())?.id || ''),
         updated_at: serverTimestamp(),
         // Keep a client-side timestamp to perform our manual Last Write Wins check
         client_timestamp: Date.now()
     };
+
+    const sanitizedData = deepSanitize(patientData);
 
     try {
         if (docId) {
@@ -1089,10 +1135,10 @@ form.addEventListener('submit', async (e) => {
                     return;
                 }
             }
-            await setDoc(patientRef, patientData, { merge: true });
+            await setDoc(patientRef, sanitizedData, { merge: true });
             showMsg('Patient record updated successfully!', 'success');
         } else {
-            await addDoc(collection(db, "patients"), patientData);
+            await addDoc(collection(db, "patients"), sanitizedData);
             showMsg('New patient added successfully!', 'success');
         }
         clearForm();
@@ -1249,6 +1295,7 @@ function showReadModal(p) {
     addItem('Healthcare Access', p.nearest_healthcare);
 
     addItem('Village', p.village);
+    addItem('PIN Code', p.pincode);
     addItem('Gram Panchayat', p.gram_panchayat);
     addItem('Location', `${escapeHTML(p.taluk)}, ${escapeHTML(p.district)}, ${escapeHTML(p.state)}`);
 
@@ -1377,6 +1424,7 @@ window.generatePDF = function (p) {
 
     addHeader("3. Residency details");
     addLine("Village", p.village);
+    addLine("PIN Code", p.pincode);
     addLine("Gram Panchayat", p.gram_panchayat);
     addLine("Taluk", p.taluk);
     addLine("District", p.district);
