@@ -41,9 +41,9 @@ const auth = getAuth(app);
 let currentUser = null;
 let userRole = 'user';
 let userStatus = 'pending';
-let userAssignedVillages = [];
-let activeVillage = null;
-let allVillagesCache = [];
+let userAssignedVillages = []; // Now stores [{id, name}]
+let activeVillage = null; // Now stores {id, name}
+let allVillagesCache = []; // Now stores [{id, name}]
 let patientUnsubscribe = null;
 let villageUnsubscribe = null;
 let usersUnsubscribe = null;
@@ -140,17 +140,45 @@ function changeStep(direction) {
 
 function validateStep(step) {
     const stepEl = document.getElementById(`step-${step}`);
-    const inputs = stepEl.querySelectorAll('input[required], select[required]');
+    const inputs = stepEl.querySelectorAll('input, select');
     let isValid = true;
+
     inputs.forEach(input => {
-        if (!input.value) {
-            input.style.borderColor = 'red';
+        // Clear previous errors
+        input.classList.remove('invalid');
+        const existingError = input.parentElement.querySelector('.error-text');
+        if (existingError) existingError.remove();
+
+        const val = input.value.trim();
+        let errorMsg = '';
+
+        if (input.hasAttribute('required') && !val) {
+            errorMsg = 'This field is required.';
+        } else if (val) {
+            if (input.id === 'mobile' && !/^[0-9]{10}$/.test(val)) {
+                errorMsg = 'Mobile must be exactly 10 digits.';
+            } else if (input.id === 'pincode' && !/^[0-9]{6}$/.test(val)) {
+                errorMsg = 'PIN Code must be 6 digits.';
+            } else if (input.type === 'email' && input.id === 'patient_email' && val && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+                errorMsg = 'Invalid email format.';
+            }
+        }
+
+        if (errorMsg) {
+            input.classList.add('invalid');
+            const errSpan = document.createElement('span');
+            errSpan.className = 'error-text';
+            errSpan.textContent = errorMsg;
+            input.parentElement.appendChild(errSpan);
             isValid = false;
-        } else {
-            input.style.borderColor = 'var(--border)';
         }
     });
-    if (!isValid) showMsg('Please fill all required fields.', 'error');
+
+    if (!isValid) {
+        // Find first invalid input and scroll to it
+        const firstInvalid = stepEl.querySelector('.invalid');
+        if (firstInvalid) firstInvalid.focus();
+    }
     return isValid;
 }
 
@@ -346,6 +374,33 @@ onAuthStateChanged(auth, async (user) => {
             // Pending or Rejected user
             appContainer.style.display = 'none';
             pendingSection.style.display = 'block';
+
+            const reactCont = document.getElementById('reactivation-container');
+            const reactBtn = document.getElementById('request-reactivation-btn');
+            const pendingStatus = document.getElementById('pending-status-msg');
+            const pendingTitle = document.getElementById('pending-title');
+            const pendingText = document.getElementById('pending-msg');
+
+            if (userStatus === 'rejected' || userStatus === 'revoked') {
+                pendingTitle.textContent = 'Account Access Revoked';
+                pendingText.textContent = 'Your access has been revoked by an administrator.';
+                reactCont.style.display = 'block';
+                reactBtn.onclick = async () => {
+                    try {
+                        await setDoc(doc(db, 'users', user.uid), { status: 'pending' }, { merge: true });
+                        pendingStatus.textContent = 'Re-activation request sent!';
+                        pendingStatus.className = 'success';
+                        reactCont.style.display = 'none';
+                    } catch (e) {
+                        pendingStatus.textContent = e.message;
+                        pendingStatus.className = 'error';
+                    }
+                };
+            } else {
+                pendingTitle.textContent = 'Account Pending Approval';
+                pendingText.textContent = 'Your account has been created successfully but is awaiting admin approval.';
+                reactCont.style.display = 'none';
+            }
         }
 
     } else {
@@ -407,11 +462,10 @@ function setupPatientListener() {
     } else {
         // Check if user has any assigned villages to avoid query errors
         if (userAssignedVillages && userAssignedVillages.length > 0) {
-            // FIX: Query based on the village name, not the creator's email
-            // The 'in' operator allows matching any village in the user's assigned list
+            const villageNames = userAssignedVillages.map(v => v.name);
             q = query(
                 collection(db, "patients"),
-                where("village", "in", userAssignedVillages),
+                where("village", "in", villageNames),
                 orderBy("updated_at", "desc")
             );
         } else {
@@ -441,47 +495,48 @@ function setupPatientListener() {
 }
 
 function adminSetup() {
-    // Listen to approved users for the datalist assignment
-    const uq = query(collection(db, 'users'), where("status", "==", "approved"));
-    usersUnsubscribe = onSnapshot(uq, (snapshot) => {
-        let totalUsersCount = snapshot.size;
-        document.getElementById('stat-total-users').textContent = totalUsersCount;
-
-        approvedUsersList.innerHTML = '';
-
-        snapshot.forEach(docSnap => {
-            const data = docSnap.data();
-            if (data.role !== 'admin') {
-                const opt = document.createElement('div');
-                opt.className = 'village-card';
-                opt.innerHTML = `
-                    <div><strong>${escapeHTML(data.email)}</strong></div>
-                    <div><button onclick="revokeUser('${docSnap.id}', '${escapeHTML(data.email)}')" class="secondary" style="padding:0.25rem 0.5rem; margin-top:5px;">Revoke Access</button></div>
-                `;
-                approvedUsersList.appendChild(opt);
-            }
-        });
-    });
-
-    // Listen for pending/users for approval
+    // Listen for users for approval and approved users
     const pq = query(collection(db, 'users'));
     pendingUsersUnsubscribe = onSnapshot(pq, (snapshot) => {
+        document.getElementById('stat-total-users').textContent = snapshot.size;
         pendingUsersList.innerHTML = '';
+        approvedUsersList.innerHTML = ''; // Clear both to rebuild
+
         snapshot.forEach(docSnap => {
             const data = docSnap.data();
-            if (data.role === 'admin') return; // Hide admins from standard approval list
+            if (data.role === 'admin') return;
 
             const div = document.createElement('div');
-            div.className = 'village-card';
+            div.className = 'patient-card'; // Consistent professional design
+
+            const isApproved = data.status === 'approved';
+            const approvedOn = data.approved_at ? new Date(data.approved_at.toDate()).toLocaleDateString() : 'N/A';
+
             div.innerHTML = `
-                <div><strong>${escapeHTML(data.email)}</strong></div>
-                <div>
-                    Status: <strong>${data.status}</strong>
-                    ${data.status === 'pending' ? `<button onclick="approveUser('${docSnap.id}')" style="margin-left:10px; padding:0.25rem 0.5rem;">Approve</button>` : ''}
-                    ${data.status === 'approved' ? `<button onclick="revokeUser('${docSnap.id}', '${escapeHTML(data.email)}')" class="secondary" style="margin-left:10px; padding:0.25rem 0.5rem;">Revoke Access</button>` : ''}
+                <div class="card-header" style="display: flex; justify-content: space-between;">
+                    <h3 style="margin:0;">${escapeHTML(data.email)}</h3>
+                    <span class="source-tag" style="background: ${isApproved ? '#e8f5e9' : '#fff3e0'}; color: ${isApproved ? '#2e7d32' : '#e65100'};">
+                        ${data.status.toUpperCase()}
+                    </span>
+                </div>
+                <div class="card-body" style="margin: 10px 0;">
+                    <div><strong>User ID:</strong> ${docSnap.id}</div>
+                    ${isApproved ? `<div style="font-size:0.85rem; color:#666; margin-top:4px;">Account Approved On: ${approvedOn}</div>` : ''}
+                    ${isApproved ? `<div style="margin-top: 10px;"><strong>Village Access:</strong> <div id="v-list-${docSnap.id}" style="display:flex; flex-wrap:wrap; gap:5px; margin-top:5px;">Loading...</div></div>` : ''}
+                </div>
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    ${data.status !== 'approved' ? `<button class="btn-sm" onclick="approveUser('${docSnap.id}')">Approve Account</button>` : ''}
+                    <button class="secondary btn-sm" onclick="revokeUser('${docSnap.id}', '${escapeHTML(data.email)}')">Revoke Full Access</button>
                 </div>
             `;
-            pendingUsersList.appendChild(div);
+
+            if (isApproved) {
+                approvedUsersList.appendChild(div);
+                // Populate granular village list for approved users
+                fetchUserVillages(data.email, `v-list-${docSnap.id}`);
+            } else {
+                pendingUsersList.appendChild(div);
+            }
         });
     });
 
@@ -493,12 +548,24 @@ function adminSetup() {
         allVillagesCache = [];
         snapshot.forEach(docSnap => {
             const data = docSnap.data();
-            allVillagesCache.push(data.name);
+            const vObj = { id: docSnap.id, name: data.name };
+            allVillagesCache.push(vObj);
+
             const div = document.createElement('div');
-            div.className = 'village-card';
+            div.className = 'patient-card'; // Consistent professional design
             div.innerHTML = `
-                <div><strong>${escapeHTML(data.name)}</strong></div>
-                <div>Assigned Users: ${data.assigned_users ? data.assigned_users.join(', ') : 'None'}</div>
+                <div class="card-header">
+                    <h3 style="margin:0;">${escapeHTML(data.name)}</h3>
+                </div>
+                <div class="card-body" style="margin: 10px 0;">
+                    <div><strong>Village ID:</strong> ${docSnap.id}</div>
+                    <div style="margin-top:5px;"><strong>Assigned Users:</strong></div>
+                    <div style="font-size: 0.9rem; color: #555; margin-top:2px;">
+                        ${data.assigned_users && data.assigned_users.length > 0
+                    ? data.assigned_users.join(', ')
+                    : '<em>No individual assignments</em>'}
+                    </div>
+                </div>
             `;
             villageListEl.appendChild(div);
         });
@@ -516,12 +583,18 @@ function adminSetup() {
         snapshot.forEach(docSnap => {
             const data = docSnap.data();
             const div = document.createElement('div');
-            div.className = 'request-card';
+            div.className = 'patient-card'; // Consistent professional design
             div.innerHTML = `
-                <div><strong>${escapeHTML(data.user_email)}</strong> requests access to <strong>${escapeHTML(data.village)}</strong></div>
-                <div style="margin-top: 10px;">
-                    <button onclick="approveAccess('${docSnap.id}', '${data.user_email}', '${data.village}')">Approve</button>
-                    <button class="secondary" onclick="rejectAccess('${docSnap.id}')">Reject</button>
+                <div class="card-header">
+                    <h3 style="margin:0; font-size: 1.1rem;">Verification Requested</h3>
+                </div>
+                <div class="card-body" style="margin: 10px 0;">
+                    <div style="margin-bottom: 5px;"><strong>User:</strong> ${escapeHTML(data.user_email)}</div>
+                    <div><strong>Village:</strong> ${escapeHTML(data.village)}</div>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:10px;">
+                    <button class="btn-sm" onclick="approveAccess('${docSnap.id}', '${data.user_email}', '${data.village}')">Grant Access</button>
+                    <button class="secondary btn-sm" onclick="rejectAccess('${docSnap.id}')">Decline</button>
                 </div>
             `;
             villageRequestsList.appendChild(div);
@@ -543,7 +616,8 @@ function userSetup() {
         requestVillageSelect.innerHTML = '<option value="">Select a village...</option>';
         snapshot.forEach(docSnap => {
             const data = docSnap.data();
-            if (!userAssignedVillages.includes(data.name)) {
+            // Check if name exists in assigned list objects
+            if (!userAssignedVillages.some(v => v.name === data.name)) {
                 const opt = document.createElement('option');
                 opt.value = data.name;
                 opt.textContent = data.name;
@@ -559,11 +633,18 @@ function userSetup() {
         myRequestsList.innerHTML = '';
         snapshot.forEach(docSnap => {
             const data = docSnap.data();
+            const requestedAt = data.created_at ? new Date(data.created_at.toDate()).toLocaleDateString() : 'N/A';
+            const approvedAt = data.approved_at ? new Date(data.approved_at.toDate()).toLocaleDateString() : '';
+
             const div = document.createElement('div');
             div.className = 'request-card';
             div.innerHTML = `
                 <div>Village: <strong>${escapeHTML(data.village)}</strong></div>
-                <div>Status: <strong>${escapeHTML(data.status)}</strong></div>
+                <div>Status: <strong class="source-tag" style="padding:2px 6px;">${escapeHTML(data.status).toUpperCase()}</strong></div>
+                <div style="font-size:0.8rem; color:#888; margin-top:5px;">
+                    Requested: ${requestedAt}
+                    ${approvedAt ? ` | Approved: ${approvedAt}` : ''}
+                </div>
             `;
             myRequestsList.appendChild(div);
         });
@@ -589,10 +670,11 @@ function userSetup() {
     };
 
     activeVillageSelect.onchange = (e) => {
-        activeVillage = e.target.value;
+        const selectedName = e.target.value;
+        activeVillage = userAssignedVillages.find(v => v.name === selectedName) || null;
         if (activeVillage) {
             formVillageBanner.style.display = 'flex';
-            formTargetVillage.textContent = activeVillage;
+            formTargetVillage.textContent = activeVillage.name;
         } else {
             formVillageBanner.style.display = 'none';
         }
@@ -623,9 +705,46 @@ function showAdminMsg(msg, type) {
 }
 
 // Global scope functions for inline onclick Handlers
+// Helper to fetch and render user-specific village tags with granular revoke
+async function fetchUserVillages(email, containerId) {
+    const container = document.getElementById(containerId);
+    const vq = query(collection(db, 'villages'));
+    const vSnap = await getDocs(vq);
+    let html = '';
+    vSnap.forEach(vDoc => {
+        const vData = vDoc.data();
+        if (vData.assigned_users && vData.assigned_users.includes(email)) {
+            html += `<span class="source-tag" style="background:#e3f2fd; color:#1565c0; display:flex; align-items:center; gap:5px;">
+                ${escapeHTML(vData.name)}
+                <span onclick="revokeVillageFromUser('${escapeHTML(vData.name)}', '${escapeHTML(email)}')" style="cursor:pointer; font-weight:bold; color:#d32f2f;">&times;</span>
+            </span>`;
+        }
+    });
+    container.innerHTML = html || 'No specific villages assigned.';
+}
+
+window.revokeVillageFromUser = async function (villageName, userEmail) {
+    if (!confirm(`Revoke access to ${villageName} for ${userEmail}?`)) return;
+    try {
+        const vq = query(collection(db, 'villages'), where('name', '==', villageName));
+        const snapshot = await getDocs(vq);
+        snapshot.forEach(async (docSnap) => {
+            const currentUsers = docSnap.data().assigned_users || [];
+            const newUsers = currentUsers.filter(e => e !== userEmail);
+            await setDoc(doc(db, 'villages', docSnap.id), { assigned_users: newUsers }, { merge: true });
+        });
+        showAdminMsg(`Access to ${villageName} revoked for ${userEmail}`, 'success');
+    } catch (e) {
+        showAdminMsg(e.message, 'error');
+    }
+};
+
 window.approveUser = async function (uid) {
     try {
-        await setDoc(doc(db, 'users', uid), { status: 'approved' }, { merge: true });
+        await setDoc(doc(db, 'users', uid), {
+            status: 'approved',
+            approved_at: serverTimestamp()
+        }, { merge: true });
         showAdminMsg('User approved!', 'success');
     } catch (e) {
         showAdminMsg(e.message, 'error');
@@ -663,7 +782,10 @@ window.revokeUser = async function (uid, email) {
 window.approveAccess = async function (reqId, userEmail, villageName) {
     try {
         // 1. Mark request as approved
-        await setDoc(doc(db, 'access_requests', reqId), { status: 'approved' }, { merge: true });
+        await setDoc(doc(db, 'access_requests', reqId), {
+            status: 'approved',
+            approved_at: serverTimestamp()
+        }, { merge: true });
 
         // 2. Find village doc and append user
         const vq = query(collection(db, 'villages'), where('name', '==', villageName));
@@ -699,7 +821,13 @@ async function fetchAssignedVillages(user) {
     // Proper realtime listener for assigned villages to restrict UI dynamically
     onSnapshot(q, (snapshot) => {
         userAssignedVillages = [];
-        snapshot.forEach(docSnap => userAssignedVillages.push(docSnap.data().name));
+        snapshot.forEach(docSnap => {
+            userAssignedVillages.push({
+                id: docSnap.id,
+                name: docSnap.data().name,
+                assigned_at: docSnap.data().assigned_at // Optional if we store it there
+            });
+        });
 
         setupFormVillageInput(); // Re-render dropdown 
         setupPatientListener(); // Re-render patient list based on new villages
@@ -709,15 +837,20 @@ async function fetchAssignedVillages(user) {
             userVillageStats.innerHTML = '';
             userAssignedVillages.forEach(v => {
                 const opt = document.createElement('option');
-                opt.value = v;
-                opt.textContent = v;
+                opt.value = v.name;
+                opt.textContent = v.name;
                 activeVillageSelect.appendChild(opt);
 
                 // Add stat card
+                const approvedAt = v.assigned_at ? new Date(v.assigned_at.toDate()).toLocaleDateString() : 'N/A';
                 const card = document.createElement('div');
                 card.className = 'stat-card';
-                card.id = `stat-card-${v.replace(/\s+/g, '-')}`;
-                card.innerHTML = `<h3>${escapeHTML(v)}</h3><div class="value" id="val-${v.replace(/\s+/g, '-')}">0</div>`;
+                card.id = `stat-card-${v.name.replace(/\s+/g, '-')}`;
+                card.innerHTML = `
+                    <h3>${escapeHTML(v.name)}</h3>
+                    <div class="value" id="val-${v.name.replace(/\s+/g, '-')}">0</div>
+                    <div style="font-size: 0.75rem; color: #888; margin-top: 8px;">Access Granted: ${approvedAt}</div>
+                `;
                 userVillageStats.appendChild(card);
             });
             // Update counts natively
@@ -736,8 +869,8 @@ function updateUserDashboardStats() {
     });
 
     userAssignedVillages.forEach(v => {
-        const el = document.getElementById(`val-${v.replace(/\s+/g, '-')}`);
-        if (el) el.textContent = counts[v] || 0;
+        const el = document.getElementById(`val-${v.name.replace(/\s+/g, '-')}`);
+        if (el) el.textContent = counts[v.name] || 0;
     });
 }
 
@@ -757,14 +890,14 @@ function setupFormVillageInput() {
         select.innerHTML = '<option value="">Select Village (Override)</option>';
         allVillagesCache.forEach(v => {
             const opt = document.createElement('option');
-            opt.value = v;
-            opt.textContent = v;
+            opt.value = v.name;
+            opt.textContent = v.name;
             select.appendChild(opt);
 
             if (filterSelect) {
                 const fOpt = document.createElement('option');
-                fOpt.value = v;
-                fOpt.textContent = v;
+                fOpt.value = v.name;
+                fOpt.textContent = v.name;
                 filterSelect.appendChild(fOpt);
             }
         });
@@ -776,14 +909,14 @@ function setupFormVillageInput() {
         select.innerHTML = '<option value="">Select Village</option>';
         userAssignedVillages.forEach(v => {
             const opt = document.createElement('option');
-            opt.value = v;
-            opt.textContent = v;
+            opt.value = v.name;
+            opt.textContent = v.name;
             select.appendChild(opt);
 
             if (filterSelect) {
                 const fOpt = document.createElement('option');
-                fOpt.value = v;
-                fOpt.textContent = v;
+                fOpt.value = v.name;
+                fOpt.textContent = v.name;
                 filterSelect.appendChild(fOpt);
             }
         });
@@ -939,6 +1072,7 @@ form.addEventListener('submit', async (e) => {
         school_dropouts: document.getElementById('dropouts').value,
 
         assigned_by_email: currentUser.email, // Assign to current user
+        village_id: activeVillage ? activeVillage.id : (allVillagesCache.find(v => v.name === document.getElementById('village').value.trim())?.id || ''),
         updated_at: serverTimestamp(),
         // Keep a client-side timestamp to perform our manual Last Write Wins check
         client_timestamp: Date.now()

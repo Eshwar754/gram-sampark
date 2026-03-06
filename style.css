@@ -116,6 +116,20 @@ h2 {
 
 .form-group {
     margin-bottom: 1.5rem;
+    position: relative;
+}
+
+.error-text {
+    color: var(--error);
+    font-size: 0.75rem;
+    margin-top: 4px;
+    display: block;
+    font-weight: 600;
+}
+
+input.invalid,
+select.invalid {
+    border-color: var(--error) !important;
 }
 
 label {

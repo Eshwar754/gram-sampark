@@ -43,9 +43,13 @@
 
         <!-- Pending State Container -->
         <section id="pending-section" style="display: none; text-align: center; padding: 4rem 1rem;">
-            <h2>Account Pending Approval</h2>
-            <p>Your account has been created successfully but is awaiting admin approval.</p>
-            <p>Please contact your administrator to activate your access.</p>
+            <h2 id="pending-title">Account Pending Approval</h2>
+            <p id="pending-msg">Your account has been created successfully but is awaiting admin approval.</p>
+            <div id="reactivation-container" style="display: none; margin-top: 2rem;">
+                <button id="request-reactivation-btn">Request Re-activation</button>
+            </div>
+            <div id="pending-status-msg" style="margin-top: 1rem;"></div>
+            <p style="margin-top: 2rem;">Please contact your administrator to activate your access.</p>
         </section>
 
         <!-- Main App Container (Hidden until logged in) -->
