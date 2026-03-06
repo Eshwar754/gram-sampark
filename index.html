@@ -1,79 +1,492 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gram-Sampark – Health Records</title>
+    <title>Gram-Sampark | Rural Health Records Portal</title>
     <link rel="stylesheet" href="style.css">
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#4CAF50">
 </head>
+
 <body>
     <header>
-        <h1>Gram-Sampark</h1>
-        <div id="status-indicator" class="status offline">Checking status...</div>
+        <div class="header-content">
+            <h1>Gram-Sampark Portal</h1>
+            <div class="header-right">
+                <span id="user-info"></span>
+                <button id="logout-btn" style="display: none;">Logout</button>
+            </div>
+        </div>
     </header>
 
     <main>
-        <section id="patient-form-section">
-            <h2>Register / Update Patient</h2>
-            <form id="patient-form">
-                <input type="hidden" id="docId">
+        <!-- Auth Section -->
+        <section id="login-section">
+            <h2 id="auth-title">Login</h2>
+            <form id="login-form">
                 <div class="form-group">
-                    <label for="patient_id">Patient ID</label>
-                    <input type="text" id="patient_id" required placeholder="e.g., GS-001">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" required>
                 </div>
                 <div class="form-group">
-                    <label for="name">Full Name</label>
-                    <input type="text" id="name" required>
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required autocomplete="current-password">
                 </div>
-                <div class="form-group">
-                    <label for="age">Age</label>
-                    <input type="number" id="age" required>
-                </div>
-                <div class="form-group">
-                    <label for="village">Village</label>
-                    <input type="text" id="village" required>
-                </div>
-                <div class="form-group">
-                    <label for="diagnosis">Diagnosis</label>
-                    <input type="text" id="diagnosis" required>
-                </div>
-                <div class="form-group">
-                    <label for="medications">Medications</label>
-                    <textarea id="medications" rows="3"></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="updated_by">Health Worker ID</label>
-                    <input type="text" id="updated_by" required placeholder="HW-101">
-                </div>
-                <button type="submit">Save Record</button>
-                <button type="button" id="clear-btn" class="secondary">Clear</button>
+                <button type="submit" id="auth-btn">Login</button>
             </form>
-            <div id="form-msg"></div>
+            <div style="margin-top: 1rem; text-align: center;">
+                <a href="#" id="toggle-auth" style="color: var(--primary);">Need an account? Register here</a>
+            </div>
+            <div id="login-msg"></div>
         </section>
 
-        <section id="patient-list-section">
-            <h2>Patient Records</h2>
-            <div class="search-box">
-                <input type="text" id="search-input" placeholder="Search by name or ID...">
-            </div>
-            <div id="patient-list">
-                <!-- Patient cards go here -->
-            </div>
+        <!-- Pending State Container -->
+        <section id="pending-section" style="display: none; text-align: center; padding: 4rem 1rem;">
+            <h2>Account Pending Approval</h2>
+            <p>Your account has been created successfully but is awaiting admin approval.</p>
+            <p>Please contact your administrator to activate your access.</p>
         </section>
+
+        <!-- Main App Container (Hidden until logged in) -->
+        <div id="app-container" style="display: none;">
+
+            <!-- User/Admin Navigation Tabs -->
+            <nav class="tab-navigation" id="main-nav">
+                <!-- Dynamically populated based on role -->
+            </nav>
+
+            <div id="status-indicator" class="status" style="margin-bottom: 1rem; font-weight: bold;"></div>
+
+            <!-- TABS PANELS (Admin) -->
+            <div id="panel-admin-dashboard" class="tab-panel">
+                <section>
+                    <h2>System Analytics</h2>
+                    <div class="dashboard-grid" id="admin-stats-grid">
+                        <div class="stat-card">
+                            <h3>Total Villages</h3>
+                            <div class="value" id="stat-total-villages">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Total Villagers Records</h3>
+                            <div class="value" id="stat-total-patients">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Registered Users</h3>
+                            <div class="value" id="stat-total-users">0</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h2>Pending User Approvals</h2>
+                    <div id="pending-users-list" class="list-container"></div>
+                </section>
+
+                <section>
+                    <h2>Village Access Requests</h2>
+                    <div id="village-requests-list" class="list-container"></div>
+                </section>
+            </div>
+
+            <div id="panel-admin-manage" class="tab-panel">
+                <section>
+                    <h2>Manage Villages</h2>
+                    <form id="village-form">
+                        <div class="form-group">
+                            <label for="village_name">Village Name</label>
+                            <input type="text" id="village_name" required>
+                        </div>
+                        <button type="submit">Create Village</button>
+                    </form>
+                    <div id="admin-msg"></div>
+
+                    <h3 style="margin-top: 1.5rem;">Existing Villages</h3>
+                    <div id="village-list" class="list-container"></div>
+                </section>
+                <section>
+                    <h2>Approved System Users</h2>
+                    <div id="approved-users-list" class="list-container"></div>
+                </section>
+            </div>
+
+            <!-- TABS PANELS (User) -->
+            <div id="panel-user-dashboard" class="tab-panel">
+                <section>
+                    <h2>My Assigned Villages</h2>
+                    <div class="form-group" style="max-width: 400px; margin-bottom: 2rem;">
+                        <label for="active-village-select">Target Village for Current Session:</label>
+                        <select id="active-village-select">
+                            <!-- Populated with assigned villages -->
+                            <option value="">Select Village...</option>
+                        </select>
+                    </div>
+
+                    <div class="dashboard-grid" id="user-village-stats">
+                        <!-- Populated by JS card by card -->
+                    </div>
+                </section>
+            </div>
+
+            <div id="panel-user-request" class="tab-panel">
+                <section>
+                    <h2>Request Village Access</h2>
+                    <p>Select a village from the global registry to request assignment access from an Admin.</p>
+                    <div class="form-group" style="max-width: 400px; margin-top: 1rem;">
+                        <label for="request-village-select">Select Village:</label>
+                        <select id="request-village-select">
+                            <option value="">Loading villages...</option>
+                        </select>
+                    </div>
+                    <button id="submit-request-btn">Submit Request</button>
+                    <div id="request-msg"></div>
+
+                    <h3 style="margin-top: 2rem;">My Pending Requests</h3>
+                    <div id="my-requests-list" class="list-container"></div>
+                </section>
+            </div>
+
+            <!-- TABS PANELS (Shared / Form / List) -->
+            <div id="panel-add-data" class="tab-panel">
+                <div class="active-village-banner" id="form-village-banner" style="display: none;">
+                    Targeting Village: <strong><span id="form-target-village">None</span></strong>
+                </div>
+
+                <section id="patient-form-section">
+                    <h2>Survey Data Entry</h2>
+                    <form id="patient-form">
+                        <input type="hidden" id="docId">
+
+                        <!-- Step Indicators -->
+                        <div class="step-indicator">
+                            <div class="step active" id="step1-indicator">1</div>
+                            <div class="step" id="step2-indicator">2</div>
+                            <div class="step" id="step3-indicator">3</div>
+                            <div class="step" id="step4-indicator">4</div>
+                            <div class="step" id="step5-indicator">5</div>
+                            <div class="step" id="step6-indicator">6</div>
+                            <div class="step" id="step7-indicator">7</div>
+                            <div class="step" id="step8-indicator">8</div>
+                        </div>
+
+                        <!-- Step 1: Personal Details -->
+                        <div class="form-step" id="step-1">
+                            <h3>Step 1: Personal Details</h3>
+                            <div class="form-group">
+                                <label for="name">Name</label>
+                                <input type="text" id="name" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="mobile">Mobile Number</label>
+                                <input type="tel" id="mobile" required pattern="[0-9]{10}"
+                                    placeholder="10 digit number">
+                            </div>
+                            <div class="form-group">
+                                <label for="patient_email">Email (Optional)</label>
+                                <input type="email" id="patient_email">
+                            </div>
+                            <div class="form-group">
+                                <label for="dob">Date of Birth</label>
+                                <input type="date" id="dob" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="caste">Caste/Category</label>
+                                <input type="text" id="caste" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="gender">Gender</label>
+                                <select id="gender" required>
+                                    <option value="">Select Gender</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="marital_status">Marital Status</label>
+                                <select id="marital_status" required>
+                                    <option value="">Select Status</option>
+                                    <option value="Single">Single</option>
+                                    <option value="Married">Married</option>
+                                    <option value="Widowed">Widowed</option>
+                                    <option value="Divorced">Divorced</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Step 2: Family Details -->
+                        <div class="form-step" id="step-2" style="display: none;">
+                            <h3>Step 2: Family Details</h3>
+                            <div id="family-members-container">
+                                <!-- Dynamic family members will be added here -->
+                            </div>
+                            <button type="button" id="add-family-btn" class="secondary" style="margin-top: 1rem;">+ Add
+                                Family Member</button>
+                        </div>
+
+                        <!-- Step 3: Health Care -->
+                        <div class="form-step" id="step-3" style="display: none;">
+                            <h3>Step 3: Health Care</h3>
+                            <div class="form-group">
+                                <label for="chronic_disease">Chronic Diseases (if any, comma separated)</label>
+                                <input type="text" id="chronic_disease" placeholder="e.g., Diabetes, Hypertension">
+                            </div>
+                            <div class="form-group">
+                                <label for="vaccination_status">Vaccination Status (COVID/General)</label>
+                                <input type="text" id="vaccination_status" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="nearest_healthcare">Nearest Health Care Facility (Name / Distance)</label>
+                                <input type="text" id="nearest_healthcare" required>
+                            </div>
+                        </div>
+
+                        <!-- Step 4: Address and Location -->
+                        <div class="form-step" id="step-4" style="display: none;">
+                            <h3>Step 4: Address and Location</h3>
+                            <div class="form-group">
+                                <label for="village">Village Name</label>
+                                <div id="village-input-container"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="gram_panchayat">Gram Panchayat</label>
+                                <input type="text" id="gram_panchayat">
+                            </div>
+                            <div class="form-group">
+                                <label for="taluk">Taluk</label>
+                                <input type="text" id="taluk">
+                            </div>
+                            <div class="form-group">
+                                <label for="district">District</label>
+                                <input type="text" id="district" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="state">State</label>
+                                <input type="text" id="state" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="landmark">Landmark</label>
+                                <input type="text" id="landmark">
+                            </div>
+                            <div class="form-group">
+                                <label for="pincode">Pin Code</label>
+                                <input type="text" id="pincode" required pattern="[0-9]{6}">
+                            </div>
+                        </div>
+
+                        <!-- Step 5: Employment Status -->
+                        <div class="form-step" id="step-5" style="display: none;">
+                            <h3>Step 5: Employment Status</h3>
+                            <div class="form-group">
+                                <label for="is_employed">Employment Status</label>
+                                <select id="is_employed" required>
+                                    <option value="">Select</option>
+                                    <option value="Yes">Employed</option>
+                                    <option value="No">Unemployed</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="employment-sector-container" style="display: none;">
+                                <label for="sector">Employment Sector</label>
+                                <select id="sector">
+                                    <option value="">Select Sector</option>
+                                    <option value="Government">Government</option>
+                                    <option value="Private">Private</option>
+                                    <option value="Farmer">Farmer</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+
+                            <!-- Dynamic Farmer Details -->
+                            <div id="farmer-details-container"
+                                style="display: none; background: #eef2f5; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+                                <h4>Farmer Specific Details</h4>
+                                <div class="form-group" style="margin-top: 1rem;">
+                                    <label for="owns_land">Owns Land?</label>
+                                    <select id="owns_land">
+                                        <option value="">Select</option>
+                                        <option value="Yes">Yes</option>
+                                        <option value="No">No</option>
+                                    </select>
+                                </div>
+                                <div id="land-details-container" style="display: none;">
+                                    <div class="form-group">
+                                        <label for="acres">Total Acres</label>
+                                        <input type="number" step="0.01" id="acres">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="sown">Crops Sown</label>
+                                        <input type="text" id="sown">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="expected_yield">Expected Yield (Quintals/Tons)</label>
+                                        <input type="text" id="expected_yield">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="livestocks">Livestock (e.g., 2 Cows, 5 Goats)</label>
+                                    <input type="text" id="livestocks">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 6: Economic Information -->
+                        <div class="form-step" id="step-6" style="display: none;">
+                            <h3>Step 6: Economic Information</h3>
+                            <div class="form-group">
+                                <label for="annual_income">Annual Income (₹)</label>
+                                <input type="number" id="annual_income" required placeholder="e.g., 500000">
+                            </div>
+                            <div class="form-group">
+                                <label for="tax_regime">Tax Regime (Indian)</label>
+                                <select id="tax_regime" required>
+                                    <option value="">Select Regime</option>
+                                    <option value="Old Regime">Old Regime</option>
+                                    <option value="New Regime">New Regime</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Step 7: Infrastructure Facilities -->
+                        <div class="form-step" id="step-7" style="display: none;">
+                            <h3>Step 7: Infrastructure Facilities</h3>
+                            <div class="form-group">
+                                <label for="road_access">Road Access Type</label>
+                                <select id="road_access" required>
+                                    <option value="">Select</option>
+                                    <option value="Paved">Paved (Tar/Concrete)</option>
+                                    <option value="Unpaved">Unpaved (Mud/Gravel)</option>
+                                    <option value="None">No direct road access</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="internet">Internet Connectivity</label>
+                                <select id="internet">
+                                    <option value="Good">Good</option>
+                                    <option value="Poor">Poor</option>
+                                    <option value="None">None</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="transport">Public Transportation Available?</label>
+                                <select id="transport">
+                                    <option value="Yes">Yes</option>
+                                    <option value="No">No</option>
+                                </select>
+                            </div>
+                            <div class="form-group"
+                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                                <div>
+                                    <label for="distance_hospital">Distance to Hospital (km)</label>
+                                    <input type="number" step="0.1" id="distance_hospital">
+                                </div>
+                                <div>
+                                    <label for="distance_school">Distance to School (km)</label>
+                                    <input type="number" step="0.1" id="distance_school">
+                                </div>
+                                <div>
+                                    <label for="distance_market">Distance to Market (km)</label>
+                                    <input type="number" step="0.1" id="distance_market">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Step 8: Education Details -->
+                        <div class="form-step" id="step-8" style="display: none;">
+                            <h3>Step 8: Education Details</h3>
+                            <div class="form-group">
+                                <label for="qualification">Highest Qualification</label>
+                                <input type="text" id="qualification" required placeholder="e.g., 10th Pass, B.A.">
+                            </div>
+                            <div class="form-group">
+                                <label for="children_school">Children Attending School?</label>
+                                <select id="children_school">
+                                    <option value="">Select</option>
+                                    <option value="Yes">Yes</option>
+                                    <option value="No">No</option>
+                                    <option value="N/A">Not Applicable</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="school-type-container" style="display: none;">
+                                <label for="school_type">School Type</label>
+                                <select id="school_type">
+                                    <option value="Government">Government</option>
+                                    <option value="Private">Private</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="dropouts">Any School Dropouts in Family?</label>
+                                <select id="dropouts">
+                                    <option value="Yes">Yes</option>
+                                    <option value="No">No</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Form Navigation -->
+                        <div style="display: flex; justify-content: space-between; margin-top: 2rem;">
+                            <button type="button" id="prev-btn" class="secondary"
+                                style="display: none;">Previous</button>
+                            <button type="button" id="next-btn">Next Step</button>
+                            <button type="button" id="clear-btn" class="secondary">Clear Form</button>
+                            <button type="submit" id="submit-btn" style="display: none;">Submit Final Data</button>
+                        </div>
+                    </form>
+                    <div id="form-msg"></div>
+                </section>
+            </div>
+
+            <div id="panel-view-data" class="tab-panel">
+                <section>
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h2>View Village Records</h2>
+                        <div style="display:flex; gap: 10px;">
+                            <select id="filter-village-select"
+                                style="padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px;">
+                                <option value="">All Villages</option>
+                            </select>
+                            <input type="text" id="search-input" placeholder="Search by name, mobile, village..."
+                                style="max-width: 300px;">
+                        </div>
+                    </div>
+                    <div id="patient-list"></div>
+                </section>
+            </div>
+
+        </div>
     </main>
 
-    <!-- Firebase SDKs -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script type="module" src="app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
-                    .then(reg => console.log('Service Worker registered', reg))
-                    .catch(err => console.error('Service Worker registration failed', err));
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('SW Registered', reg))
+                    .catch(err => console.log('SW Reg Error', err));
             });
         }
     </script>
+
+    <!-- Generic Modal Container for Inline Editing -->
+    <div id="general-modal"
+        style="display:none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index: 1000; align-items:center; justify-content:center;">
+        <div id="general-modal-content"
+            style="background:var(--card-bg); padding:2rem; width:90%; max-width:800px; max-height:90vh; overflow-y:auto; border-radius:8px; position:relative; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <button id="close-modal-btn"
+                style="position:absolute; top:10px; right:15px; background:none; color:var(--text); border:none; font-size:1.5rem; cursor:pointer;">&times;</button>
+            <div id="modal-body-wrapper"></div>
+
+            <!-- Read Only Container Pattern -->
+            <div id="patient-read-view" style="display: none; padding: 1rem;">
+                <h2 id="read-title"
+                    style="margin-bottom: 20px; border-bottom: 2px solid var(--accent); padding-bottom: 10px;"></h2>
+                <div id="read-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; line-height: 1.6;">
+                </div>
+            </div>
+
+        </div>
+    </div>
 </body>
+
 </html>
