@@ -383,6 +383,11 @@ function setupTabs(tabs) {
             allPanels.forEach(p => p.classList.remove('active'));
             btn.classList.add('active');
             document.getElementById(tab.id).classList.add('active');
+
+            // Fix: Reset form when entering data entry tabs to avoid starting at partial/late steps
+            if (tab.id === 'panel-add-data') {
+                clearForm();
+            }
         };
         mainNav.appendChild(btn);
 
@@ -794,12 +799,27 @@ function renderPatients(patients) {
         const dateStr = p.updated_at ? new Date(p.client_timestamp || p.updated_at.toDate()).toLocaleString() : 'Pending...';
 
         div.innerHTML = `
-      <h3>${escapeHTML(p.name)}</h3>
-      <p><strong>Mobile:</strong> ${escapeHTML(p.mobile)} | <strong>Village:</strong> ${escapeHTML(p.village)}</p>
-      <p><strong>Sector:</strong> ${escapeHTML(p.sector) || 'N/A'}</p>
-      <div class="meta" style="margin-bottom: 10px;">
-        Updated: ${dateStr}
-        <br><small>Status: ${p.source} (LWW enforced)</small>
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+           <h3 style="margin: 0; color: var(--primary);">${escapeHTML(p.name)}</h3>
+           <div style="font-size: 0.9rem; color: #666; margin-top: 4px;">
+              ${escapeHTML(p.gender)} | DOB: ${escapeHTML(p.dob)}
+           </div>
+        </div>
+        <div class="source-tag" style="background: #e0e0e0; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">
+           ${p.source}
+        </div>
+      </div>
+      
+      <div class="card-body" style="margin: 12px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.95rem;">
+        <div><strong>Mobile:</strong> ${escapeHTML(p.mobile)}</div>
+        <div><strong>Village:</strong> ${escapeHTML(p.village)}</div>
+        <div><strong>Sector:</strong> ${escapeHTML(p.sector) || 'N/A'}</div>
+        <div><strong>Income:</strong> ₹${escapeHTML(p.annual_income) || '0'}</div>
+      </div>
+
+      <div class="meta" style="font-size: 0.8rem; color: #888; border-top: 1px solid #eee; padding-top: 8px; margin-top: 8px;">
+        Last Updated: ${dateStr}
       </div>
     `;
 
@@ -810,7 +830,13 @@ function renderPatients(patients) {
         };
 
         const btnContainer = document.createElement('div');
+        btnContainer.style.marginTop = '15px';
+        btnContainer.style.display = 'flex';
+        btnContainer.style.gap = '8px';
+        btnContainer.style.flexWrap = 'wrap';
+
         const editBtn = document.createElement('button');
+        editBtn.className = 'btn-sm';
         editBtn.textContent = 'Edit Record';
         editBtn.onclick = (e) => {
             e.stopPropagation();
@@ -819,8 +845,8 @@ function renderPatients(patients) {
         btnContainer.appendChild(editBtn);
 
         const pdfBtn = document.createElement('button');
-        pdfBtn.style.marginLeft = '10px';
-        pdfBtn.textContent = 'Generate PDF';
+        pdfBtn.className = 'btn-sm';
+        pdfBtn.textContent = 'Report PDF';
         pdfBtn.onclick = (e) => {
             e.stopPropagation();
             if (window.generatePDF) {
@@ -829,19 +855,18 @@ function renderPatients(patients) {
         };
         btnContainer.appendChild(pdfBtn);
 
-        if (userRole === 'admin') {
-            const delBtn = document.createElement('button');
-            delBtn.className = 'secondary';
-            delBtn.style.marginLeft = '10px';
-            delBtn.textContent = 'Delete';
-            delBtn.onclick = (e) => {
-                e.stopPropagation();
-                if (confirm('Are you sure you want to permanently delete this record?')) {
-                    deleteDoc(doc(db, "patients", p.id)).then(() => showMsg('Record deleted.', 'success')).catch(e => showMsg(e.message, 'error'));
-                }
-            };
-            btnContainer.appendChild(delBtn);
-        }
+        const delBtn = document.createElement('button');
+        delBtn.className = 'secondary btn-sm';
+        delBtn.textContent = 'Delete';
+        delBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (confirm(`Are you sure you want to permanently delete ${p.name}'s record?`)) {
+                deleteDoc(doc(db, "patients", p.id))
+                    .then(() => showMsg('Record deleted.', 'success'))
+                    .catch(e => showMsg(e.message, 'error'));
+            }
+        };
+        btnContainer.appendChild(delBtn);
 
         div.appendChild(btnContainer);
         patientListEl.appendChild(div);
@@ -954,6 +979,17 @@ form.addEventListener('submit', async (e) => {
 });
 
 function editPatient(p) {
+    // Reset steps to 1 before populating
+    currentStep = 1;
+    document.querySelectorAll('.step.completed').forEach(el => el.classList.remove('completed'));
+    document.querySelectorAll('.step-indicator .step').forEach(el => el.classList.remove('active'));
+    document.getElementById('step1-indicator').classList.add('active');
+    document.querySelectorAll('.form-step').forEach(el => el.style.display = 'none');
+    document.getElementById('step-1').style.display = 'block';
+    prevBtn.style.display = 'none';
+    nextBtn.style.display = 'inline-block';
+    submitBtn.style.display = 'none';
+
     document.getElementById('docId').value = p.id;
     document.getElementById('name').value = p.name || '';
     document.getElementById('mobile').value = p.mobile || '';
