@@ -50,10 +50,10 @@ header {
     align-items: center;
 }
 
-.header-content h1 {
-    font-size: 1.8rem;
-    font-weight: 600;
-    letter-spacing: 0.5px;
+.header-logo {
+    height: 40px;
+    width: auto;
+    object-fit: contain;
 }
 
 .header-right {
