@@ -660,6 +660,18 @@ function userSetup() {
         const v = requestVillageSelect.value;
         if (!v) return;
         try {
+            const existingReqQuery = query(
+                collection(db, 'access_requests'),
+                where('user_email', '==', currentUser.email),
+                where('village', '==', v)
+            );
+            const existingReqSnap = await getDocs(existingReqQuery);
+            if (!existingReqSnap.empty) {
+                document.getElementById('request-msg').textContent = 'You have already requested access to this village.';
+                document.getElementById('request-msg').className = 'error';
+                return;
+            }
+
             await addDoc(collection(db, 'access_requests'), {
                 user_email: currentUser.email,
                 village: v,
@@ -795,16 +807,14 @@ window.approveAccess = async function (reqId, userEmail, villageName) {
 
         // 2. Find village doc and append user
         const vq = query(collection(db, 'villages'), where('name', '==', villageName));
-        // wait no, we need getDocs for query
-        getDocs(vq).then(snapshot => {
-            snapshot.forEach(async (docSnap) => {
-                const currentUsers = docSnap.data().assigned_users || [];
-                if (!currentUsers.includes(userEmail)) {
-                    currentUsers.push(userEmail);
-                    await setDoc(doc(db, 'villages', docSnap.id), { assigned_users: currentUsers }, { merge: true });
-                }
-            });
-        });
+        const snapshot = await getDocs(vq);
+        for (const docSnap of snapshot.docs) {
+            const currentUsers = docSnap.data().assigned_users || [];
+            if (!currentUsers.includes(userEmail)) {
+                currentUsers.push(userEmail);
+                await setDoc(doc(db, 'villages', docSnap.id), { assigned_users: currentUsers }, { merge: true });
+            }
+        }
         showAdminMsg('Request approved and village assigned', 'success');
     } catch (e) {
         showAdminMsg(e.message, 'error');
@@ -1325,7 +1335,13 @@ function clearForm() {
 
     currentStep = 1;
     document.querySelectorAll('.step.completed').forEach(el => el.classList.remove('completed'));
-    changeStep(0);
+    document.querySelectorAll('.step-indicator .step').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.form-step').forEach(el => el.style.display = 'none');
+    document.getElementById('step1-indicator').classList.add('active');
+    document.getElementById('step-1').style.display = 'block';
+    prevBtn.style.display = 'none';
+    nextBtn.style.display = 'inline-block';
+    submitBtn.style.display = 'none';
 }
 
 function showMsg(msg, type) {
