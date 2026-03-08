@@ -1147,12 +1147,17 @@ form.addEventListener('submit', async (e) => {
                     return;
                 }
             }
-            await setDoc(patientRef, sanitizedData, { merge: true });
-            showMsg('Patient record updated successfully!', 'success');
+            // Fire and forget the save so UI updates immediately even if offline
+            setDoc(patientRef, sanitizedData, { merge: true })
+                .catch(e => console.error("Background sync error:", e));
+            showMsg('Patient record updated successfully! (Syncing in background)', 'success');
         } else {
-            await addDoc(collection(db, "patients"), sanitizedData);
-            showMsg('New patient added successfully!', 'success');
+            // Fire and forget the save so UI updates immediately even if offline
+            addDoc(collection(db, "patients"), sanitizedData)
+                .catch(e => console.error("Background sync error:", e));
+            showMsg('New patient added successfully! (Syncing in background)', 'success');
         }
+
         clearForm();
 
         if (document.getElementById('general-modal').style.display === 'flex') {
@@ -1166,7 +1171,7 @@ form.addEventListener('submit', async (e) => {
 
     } catch (error) {
         console.error("Error writing document: ", error);
-        showMsg('Error saving record. Check console for details.', 'error');
+        showMsg('Error preparing record. Check console for details.', 'error');
     }
 });
 
