@@ -693,8 +693,14 @@ function userSetup() {
         if (activeVillage) {
             formVillageBanner.style.display = 'flex';
             formTargetVillage.textContent = activeVillage.name;
+            if (document.getElementById('village')) {
+                document.getElementById('village').value = activeVillage.name;
+            }
         } else {
             formVillageBanner.style.display = 'none';
+            if (document.getElementById('village')) {
+                document.getElementById('village').value = userAssignedVillages.length > 0 ? userAssignedVillages[0].name : '';
+            }
         }
     };
 }
@@ -922,26 +928,22 @@ function setupFormVillageInput() {
             activeVillage = allVillagesCache.find(v => v.name === e.target.value) || null;
         });
     } else {
-        const select = document.createElement('select');
-        select.id = 'village';
-        select.required = true;
-        select.innerHTML = '<option value="">Select Village</option>';
-        userAssignedVillages.forEach(v => {
-            const opt = document.createElement('option');
-            opt.value = v.name;
-            opt.textContent = v.name;
-            select.appendChild(opt);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.id = 'village';
+        input.readOnly = true;
+        input.required = true;
+        input.defaultValue = activeVillage ? activeVillage.name : (userAssignedVillages.length > 0 ? userAssignedVillages[0].name : '');
+        input.value = input.defaultValue;
+        container.appendChild(input);
 
+        userAssignedVillages.forEach(v => {
             if (filterSelect) {
                 const fOpt = document.createElement('option');
                 fOpt.value = v.name;
                 fOpt.textContent = v.name;
                 filterSelect.appendChild(fOpt);
             }
-        });
-        container.appendChild(select);
-        select.addEventListener('change', (e) => {
-            activeVillage = userAssignedVillages.find(v => v.name === e.target.value) || null;
         });
     }
 }
@@ -1392,100 +1394,195 @@ window.generatePDF = function (p) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
-    doc.setFontSize(18);
-    doc.text("Gram-Sampark Villager Record", 105, 20, null, null, "center");
+    // Color palette
+    const primaryColor = [46, 125, 50]; // #2e7d32
+    const lightGray = [240, 240, 240];
 
-    doc.setFontSize(12);
-    let y = 35;
-    const addLine = (label, value) => {
-        // Simple word wrap
-        const str = `${label}: ${value !== undefined && value !== null && value !== '' ? value : 'N/A'}`;
-        const lines = doc.splitTextToSize(str, 180);
-        doc.text(lines, 14, y);
-        y += (lines.length * 6) + 2;
-        if (y > 275) { doc.addPage(); y = 20; }
+    // Header Background
+    doc.setFillColor(...primaryColor);
+    doc.rect(0, 0, 210, 30, 'F');
+
+    // Header Text
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text("GRAM-SAMPARK", 105, 18, { align: "center" });
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text("Rural Health Records & Demographics Portal", 105, 25, { align: "center" });
+
+    // Reset text color to dark gray
+    doc.setTextColor(40, 40, 40);
+
+    let y = 40;
+
+    const checkPageBreak = (neededHeight = 10) => {
+        if (y + neededHeight > 280) {
+            doc.addPage();
+            y = 20;
+            return true;
+        }
+        return false;
     };
 
-    const addHeader = (title) => {
-        y += 4;
-        if (y > 275) { doc.addPage(); y = 20; }
-        doc.setFontSize(14);
-        doc.setFont("helvetica", "bold");
-        doc.text(title, 14, y);
-        doc.setFont("helvetica", "normal");
+    const addSectionHeader = (title) => {
+        checkPageBreak(15);
+        doc.setFillColor(...lightGray);
+        doc.rect(14, y - 5, 182, 8, 'F');
         doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...primaryColor);
+        doc.text(title.toUpperCase(), 16, y);
+        doc.setTextColor(40, 40, 40);
         y += 8;
-    }
+    };
 
-    addHeader("1. Personal Details");
-    addLine("Name", p.name);
-    addLine("Mobile", p.mobile);
-    addLine("Email", p.email);
-    addLine("Date of Birth", p.dob);
-    addLine("Caste", p.caste);
-    addLine("Gender", p.gender);
-    addLine("Marital Status", p.marital_status);
+    const addField = (label, value, x = 14, autoY = true) => {
+        const valStr = (value !== undefined && value !== null && value !== '') ? String(value) : 'N/A';
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text(`${label}:`, x, y);
 
+        // Calculate width while font is still bold
+        const labelWidth = doc.getTextWidth(`${label}: `) + 1;
+
+        doc.setFont("helvetica", "normal");
+
+        // Wrap text if needed
+        const lines = doc.splitTextToSize(valStr, (x === 14 ? 180 : 90) - labelWidth);
+        doc.text(lines, x + labelWidth, y);
+
+        if (autoY) {
+            y += (lines.length * 5) + 2;
+        }
+    };
+
+    // 1. Personal Details (2 Columns)
+    addSectionHeader("1. Personal Details");
+    checkPageBreak(30);
+
+    addField("Name", p.name, 14, false);
+    addField("Mobile", p.mobile, 110, true);
+
+    addField("DOB", p.dob, 14, false);
+    addField("Gender", p.gender, 110, true);
+
+    addField("Caste", p.caste, 14, false);
+    addField("Marital Status", p.marital_status, 110, true);
+
+    addField("Email", p.email, 14, true);
+
+    y += 2;
+
+    // 1.1 Family Members
     if (p.family_members && p.family_members.length > 0) {
-        addHeader("1.1 Family Members");
-        p.family_members.forEach((fm, idx) => {
-            addLine(`Member ${idx + 1}`, `${fm.name} (${fm.relation}) - ${fm.gender}, ${fm.marital}, ${fm.employment}`);
+        addSectionHeader("1.1 Family Members");
+
+        // Table Header
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.text("Name", 15, y);
+        doc.text("Relation", 65, y);
+        doc.text("Gender", 100, y);
+        doc.text("Marital", 130, y);
+        doc.text("Occupation", 160, y);
+        y += 2;
+        doc.setDrawColor(200, 200, 200);
+        doc.line(14, y, 196, y);
+        y += 5;
+
+        doc.setFont("helvetica", "normal");
+        p.family_members.forEach((fm) => {
+            checkPageBreak(10);
+            doc.text(String(fm.name).substring(0, 25), 15, y);
+            doc.text(String(fm.relation).substring(0, 15), 65, y);
+            doc.text(String(fm.gender), 100, y);
+            doc.text(String(fm.marital), 130, y);
+            doc.text(String(fm.employment).substring(0, 20), 160, y);
+            y += 6;
         });
+        y += 2;
     }
 
-    addHeader("2. Health Profile");
-    addLine("Chronic Diseases", p.chronic_disease);
-    addLine("Vaccination Status", p.vaccination_status);
-    addLine("Nearest Healthcare Access", p.nearest_healthcare);
+    // 2. Health Profile
+    addSectionHeader("2. Health Profile");
+    addField("Chronic Diseases", p.chronic_disease, 14, true);
+    addField("Vaccination Status", p.vaccination_status, 14, true);
+    addField("Nearest Facility", p.nearest_healthcare, 14, true);
+    y += 2;
 
-    addHeader("3. Residency details");
-    addLine("Village", p.village);
-    addLine("PIN Code", p.pincode);
-    addLine("Gram Panchayat", p.gram_panchayat);
-    addLine("Taluk", p.taluk);
-    addLine("District", p.district);
-    addLine("State", p.state);
+    // 3. Location Details
+    addSectionHeader("3. Location Details");
+    addField("Village / Panchayat", `${p.village} / ${p.gram_panchayat || 'N/A'}`, 14, true);
+    addField("Block / Taluk", p.taluk, 14, false);
+    addField("District", p.district, 110, true);
+    addField("State / PIN", `${p.state} - ${p.pincode}`, 14, true);
+    addField("Landmark", p.landmark, 14, true);
+    y += 2;
 
-    addHeader("4. Occupation details");
-    addLine("Employment Status", p.is_employed);
-    addLine("Sector", p.sector);
+    // 4. Occupation & Economy
+    addSectionHeader("4. Occupation & Economy");
+    addField("Employment", `${p.is_employed} (${p.sector || 'N/A'})`, 14, false);
+    addField("Annual Income", p.annual_income ? `Rs. ${p.annual_income}` : "N/A", 110, true);
+    addField("Tax Regime", p.tax_regime, 14, false);
+    addField("Owns Land", p.owns_land, 110, true);
 
-    if (p.sector === "Farm" && p.farming_data) {
-        addLine("Farming Target Area", p.farming_data.target_area);
-        addLine("Main Crop Yield Size", p.farming_data.crop_yield_size);
-        addLine("Livestock Inventory", p.farming_data.livestock_inventory);
+    if (p.owns_land === "Yes" && parseFloat(p.acres) > 0) {
+        addField("Land Size", `${p.acres} acres`, 14, false);
+        addField("Crops Sown", p.sown, 110, true);
+        addField("Expected Yield", p.expected_yield, 14, true);
     }
+    addField("Livestock", p.livestocks, 14, true);
+    y += 2;
 
-    addHeader("5. Regional Economy & Environment");
-    addLine("Land Ownership", p.owns_land);
-    if (p.owns_land === "Yes") {
-        addLine("Total Land Assessed", p.land_data?.total_land);
-    }
-    addLine("Internet Accessibility", p.internet_access);
-    addLine("Distance to Nearest City", p.distance_city);
-    addLine("Distance to Hospital", p.distance_hospital);
-    addLine("Distance to Market", p.distance_market);
-    addLine("Public Transport Route", p.public_transport);
-
-    addHeader("6. Taxation & Revenue");
-    addLine("Annual Income", p.annual_income ? `Rs. ${p.annual_income}` : "");
-    addLine("Tax Regime", p.tax_regime);
-
-    addHeader("7. Education Details");
-    addLine("Highest Qualification", p.highest_qual);
-    addLine("Children pursuing schooling", p.children_school);
-    if (p.children_school === "Yes" && p.education_data) {
-        addLine("School Structure", p.education_data.school_type);
-        addLine("Instances of dropouts", p.education_data.school_dropouts);
-    }
-
-    y = Math.max(y + 15, 250);
+    // 5. Infrastructure Accessibility
+    addSectionHeader("5. Infrastructure");
+    addField("Road Access", p.road_access, 14, false);
+    addField("Internet", p.internet, 110, true);
+    addField("Public Transport", p.public_transport, 14, true);
 
     doc.setFontSize(9);
-    doc.setTextColor(100);
-    doc.text(`Digitally generated by Gram-Sampark PDF Utility`, 14, y);
-    doc.text(`Authorized by: ${currentUser ? currentUser.email : 'System'}`, 14, y + 5);
-    doc.text(`Timestamp: ${new Date().toLocaleString()}`, 14, y + 10);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(100, 100, 100);
+    doc.text("Distances (approx km):", 14, y);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(40, 40, 40);
+    y += 5;
+    addField("Hospital", p.distance_hospital, 15, false);
+    addField("School", p.distance_school, 75, false);
+    addField("Market", p.distance_market, 135, true);
+    y += 2;
 
-    doc.save(`GramSampark_${p.name.replace(/\s+/g, '_')}.pdf`);
+    // 6. Education
+    addSectionHeader("6. Education Details");
+    addField("Highest Qualification", p.highest_qual, 14, true);
+    addField("Children in School", p.children_school, 14, false);
+
+    if (p.children_school === "Yes") {
+        addField("School Type", p.school_type, 110, true);
+    } else {
+        y += 7; // manually advance if not showing school type
+    }
+    addField("School Dropouts in Family", p.school_dropouts, 14, true);
+
+    // Footer
+    const addFooter = () => {
+        const pageCount = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setDrawColor(200, 200, 200);
+            doc.line(14, 282, 196, 282);
+            doc.setFontSize(8);
+            doc.setTextColor(120, 120, 120);
+
+            const timestamp = new Date().toLocaleString();
+            doc.text(`Digitally generated by Gram-Sampark Utility`, 14, 286);
+            doc.text(`Authorized by: ${currentUser ? currentUser.email : 'System'} | ${timestamp}`, 14, 290);
+            doc.text(`Page ${i} of ${pageCount}`, 196, 290, { align: "right" });
+        }
+    };
+    addFooter();
+
+    doc.save(`GramSampark_${(p.name || 'User').replace(/\s+/g, '_')}.pdf`);
 }
